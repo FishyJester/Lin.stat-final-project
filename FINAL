@@ -120,9 +120,16 @@ model.loglm2 = lm(log(crmpp)~.,data= logtestdata)
 
 # comparing AICs
 
-AIC(model.lm)
-AIC(model.lm2)
-AIC(model.loglm) # this model has the smallest AIC among all 4 model!
-AIC(model.loglm2)
+AIC(model.lm)     #2
+AIC(model.lm2)    #4
+AIC(model.loglm)  #1 this model has the smallest AIC among all 4 model!
+AIC(model.loglm2) #3
+
+# BIc
+
+BIC(model.lm)     #4
+BIC(model.lm2)    #2
+BIC(model.loglm)  #3
+BIC(model.loglm2) #1  this model has the smallest BIC among all 4 model!
 
 
