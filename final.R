@@ -25,12 +25,12 @@ data$county[as.integer(row.names(tmp))] = tmp$new
 rm(tmp)
 row.names(data) = data$county
 data = data[,-2]
-
+# Let's skip this for now.
 # remove the name and convert the state to values (1:48)
 ## change statets to numbers
-for (i in 1:48) {
-  data$state[data$state == states[i]] = i
-}
+#for (i in 1:48) {
+#  data$state[data$state == states[i]] = i
+#}
 
 # correlation matrix,to detect possible colinearities-------------------------------------------------------
 library(RColorBrewer)
