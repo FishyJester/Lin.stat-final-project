@@ -25,12 +25,12 @@ data$county[as.integer(row.names(tmp))] = tmp$new
 rm(tmp)
 row.names(data) = data$county
 data = data[,-2]
-# Let's skip this for now.
+
 # remove the name and convert the state to values (1:48)
 ## change statets to numbers
-#for (i in 1:48) {
-#  data$state[data$state == states[i]] = i
-#}
+for (i in 1:48) {
+  data$state[data$state == states[i]] = i
+}
 
 # correlation matrix,to detect possible colinearities-------------------------------------------------------
 library(RColorBrewer)
@@ -191,12 +191,9 @@ ggplot(data = state.map, mapping = aes(x = long, y = lat, group = group))+
 # Plotting done. To efficiently work with model selection (regsubset) later we need to create dummy variables
 # out of the region variable. Question is; should we have state as independent variable? Pros, cons?
 # Let's leave it out for now. Too many variables if we would treat it as a factor.
-
 data.transf = data.transf[,-2] # Removing state variable
 data.transf$region = as.factor(data.transf$region)
-
 # Need to create dummy variables out of region with "West" as baseline.
-
 library(dummies)
 data.transf = dummy.data.frame(data.transf)
 data.transf = data.transf[,-16] # Remove region 4 (West) to use as baseline.
@@ -204,8 +201,9 @@ names(data.transf)[names(data.transf) %in%
                      c("region1", "region2", "region3")] = 
   c("Northeast", "Midwest", "South")
 
-# Now we can start with linear model fit. FIrst with full model. 
-# We also divide into training and testing set.
+# Start of model and regsubset, etc ------------------------------------------------------------------------------
+
+set.seed(345) # So same data always is used
 
 nr.train = dim(data)[1]*0.7
 nr.test = dim(data)[1] - nr.train
@@ -213,6 +211,8 @@ train.index = sample(1:dim(data)[1], nr.train)
 
 train.data = data.transf[train.index,]
 test.data = data.transf[-train.index,]
+
+
 
 mm1 = lm(crmpp~., data = train.data)
 summary(mm1)
@@ -225,8 +225,61 @@ summary(mm1)
 # which when I think of it makes sense. As smaller area and more people means more
 # crowded, ie big city, which means more crime.
 
-# Let's do the variable selection with regsubset. 
+# Let's do the variable selection with regsubset. --------------------------------------------------------------------
 library(leaps)
-best.sub.model = regsubsets(crmpp~., data = train.data, nvmax = 15)
+regsub.model = regsubsets(crmpp~., data = train.data, nvmax = 15)
+
+# Now that we have candidate models, how shall we choose? Based on prediction accuracy or 
+# interpretability/inference? Let's choose with accuracy since that was mentioned on the project page.
+
+regsub.model.sum = summary(regsub.model)$which
+
+n.folds <- 10
+folds.i <- sample(rep(1:n.folds, length.out = dim(train.data)[1]))
+rMSE.mat = matrix(data = NA, nrow = n.folds, ncol = dim(regsub.model.sum)[1])
+
+for(i in 1:n.folds){
+  train.dat.x = data.matrix(train.data[which(folds.i != i),-1])
+  train.dat.y = train.data[which(folds.i != i), 1]
+  test.dat.x = data.matrix(train.data[which(folds.i == i),-1])
+  test.dat.y = train.data[which(folds.i == i), 1]
+  
+  for(j in 1:dim(regsub.model.sum)[1]){
+    mm = lm(train.dat.y~train.dat.x[,regsub.model.sum[j,-1]])
+    mm.pred = sum((test.dat.y-
+                     cbind(rep(1,dim(test.dat.x)[1]), test.dat.x[,regsub.model.sum[j,-1]])%*%
+                     mm$coef)^2)/length(test.dat.y)
+    rMSE.mat[i,j] = mm.pred
+  }
+}
+
+avg.pMSE = apply(rMSE.mat, 2, mean)
+sd.pMSE = apply(rMSE.mat, 2, sd)/sqrt(n.folds)
+
+avg.pMSE = data.frame(avg.pMSE)
+library(ggplot2)
+ggplot(data = avg.pMSE, aes(1:14, avg.pMSE, color = "Cross validation pMSE")) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  geom_vline(xintercept = which.min(avg.pMSE$avg.pMSE), color = "#CC6666", size = 1, linetype = "dotted") +
+  theme(legend.position="none") +
+  xlab("Nr of variables") +
+  ylab("Prediction MSE") +
+  ggtitle("Prediction MSE, different model size") +
+  geom_text(x = which.min(avg.pMSE$avg.pMSE), y= 600, 
+            label="CV min pMSE = 7", 
+            colour="#CC6666", hjust = 1.25, size = 3.5, angle = 45)
+
+# Let's see which model this winning model is ----------------------------------------------------------------------
+select.vars = as.logical(c(1, as.integer(regsub.model.sum[7,-1])))
+win.df = subset(train.data, select = select.vars)
+win.model = lm(crmpp~., data = win.df)
+summary(win.model)
 
 
+
+
+# hist(data$crmpp)
+hist(log(data$crmpp))
+
+### Multi-Linear regression
