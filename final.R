@@ -191,9 +191,12 @@ ggplot(data = state.map, mapping = aes(x = long, y = lat, group = group))+
 # Plotting done. To efficiently work with model selection (regsubset) later we need to create dummy variables
 # out of the region variable. Question is; should we have state as independent variable? Pros, cons?
 # Let's leave it out for now. Too many variables if we would treat it as a factor.
+
 data.transf = data.transf[,-2] # Removing state variable
 data.transf$region = as.factor(data.transf$region)
+
 # Need to create dummy variables out of region with "West" as baseline.
+
 library(dummies)
 data.transf = dummy.data.frame(data.transf)
 data.transf = data.transf[,-16] # Remove region 4 (West) to use as baseline.
@@ -201,7 +204,29 @@ names(data.transf)[names(data.transf) %in%
                      c("region1", "region2", "region3")] = 
   c("Northeast", "Midwest", "South")
 
-# hist(data$crmpp)
-hist(log(data$crmpp))
+# Now we can start with linear model fit. FIrst with full model. 
+# We also divide into training and testing set.
 
-### Multi-Linear regression
+nr.train = dim(data)[1]*0.7
+nr.test = dim(data)[1] - nr.train
+train.index = sample(1:dim(data)[1], nr.train)
+
+train.data = data.transf[train.index,]
+test.data = data.transf[-train.index,]
+
+mm1 = lm(crmpp~., data = train.data)
+summary(mm1)
+
+# Significant variables: area, popul, poors, northeast, midwest. 
+# poors make sense, for northeast and miwest we just get difference from baseline
+# and it's expected these are significantly different from "West"
+# poors is not strange, popul not either. Surprising is area. Did not expect 
+# it to have soo much to do with the crime. Smaller area -> more crime pp
+# which when I think of it makes sense. As smaller area and more people means more
+# crowded, ie big city, which means more crime.
+
+# Let's do the variable selection with regsubset. 
+library(leaps)
+best.sub.model = regsubsets(crmpp~., data = train.data, nvmax = 15)
+
+
