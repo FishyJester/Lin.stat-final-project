@@ -185,7 +185,7 @@ ggplot(data = state.map, mapping = aes(x = long, y = lat, group = group))+
   coord_map(projection = "conic", lat0 = 30)+
   labs(title = "Average crime rate per 1000 inhabitants per state.",
        subtitle = "Data from 1990 census.", size = 0.5)
-  
+
 #--------------------------------------------------------------------------------------------------------------------
 #
 # Plotting done. To efficiently work with model selection (regsubset) later we need to create dummy variables
@@ -212,7 +212,7 @@ train.index = sample(1:dim(data)[1], nr.train)
 train.data = data.transf[train.index,]
 test.data = data.transf[-train.index,]
 
-
+rm(nr.train, nr.test, train.index)
 
 mm1 = lm(crmpp~., data = train.data)
 summary(mm1)
@@ -254,9 +254,8 @@ for(i in 1:n.folds){
 }
 
 avg.pMSE = apply(rMSE.mat, 2, mean)
-sd.pMSE = apply(rMSE.mat, 2, sd)/sqrt(n.folds)
-
 avg.pMSE = data.frame(avg.pMSE)
+
 library(ggplot2)
 ggplot(data = avg.pMSE, aes(1:14, avg.pMSE, color = "Cross validation pMSE")) +
   geom_point(size = 3) +
@@ -277,9 +276,164 @@ win.model = lm(crmpp~., data = win.df)
 summary(win.model)
 
 
+stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
+
+# DIAGNOSTICS OF MODEL--------------------------------------------------------------------------------------------
+
+fitted.vals = predict(win.model)
+elastic.residuals = train.data$crmpp - fitted.vals
+dat.tmp = data.frame(cbind(fitted.vals, elastic.residuals))
+colnames(dat.tmp) = c("fitted values", "residuals")
+#
+# Residuals vs fitted value
+#
+p1 = ggplot(data = dat.tmp ,aes(fitted.vals, elastic.residuals, color = elastic.residuals)) + geom_point() +
+  stat_smooth(method="loess", color = "black") + 
+  geom_hline(yintercept=0, col="red", linetype="dashed") +
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Fitted values") + 
+  ylab("Residuals") +
+  ggtitle("Residual vs Fitted Plot")+
+  geom_text(aes(label = ifelse(residuals > 150, row.names(dat.tmp), '')), hjust = -0.5, vjust = 0.5, size = 3)
+  
+
+#
+#
+# Normal QQ-plot
+#
+#
+std.elastic.residuals = scale(elastic.residuals)
+qqPoints.y = quantile(std.elastic.residuals, c(0.25,0.75), names=FALSE, type=7)
+qqPoints.x = qnorm(c(0.25,0.75))
+slope = diff(qqPoints.y)/diff(qqPoints.x)
+intercept = qqPoints.y-slope*qqPoints.x
+
+p2 = ggplot(dat.tmp, aes(qqnorm(std.elastic.residuals)[[1]], std.elastic.residuals, color = std.elastic.residuals))+
+  geom_point() +
+  geom_abline(slope = slope, intercept = intercept, color = "red", lwd = 0.5) + 
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Theoretical Quantiles") + 
+  ylab("Standardized Residuals") +
+  ggtitle("Normal Q-Q")
+
+#
+# Scale-location plot
+#
+#
+
+p3 = ggplot(dat.tmp, aes(fitted.vals, sqrt(abs(std.elastic.residuals)), color = sqrt(abs(std.elastic.residuals))))+
+  geom_point() +
+  stat_smooth(method="loess", na.rm = TRUE, color = "red") +
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Fitted Value") +
+  ylab(expression(sqrt("|Standardized residuals|"))) +
+  ggtitle("Scale-Location")
+#
+#
+# Cooks distance
+#
+houseDat.x.1se = houseDat.x[,-c(1, 2, 3, 6, 8, 11, 15)]
+hatMat = hat(houseDat.x.1se)
+ones = rep(1,500)
+MSE = 1/(500-12) * std.elastic.residuals[,1] %*% std.elastic.residuals[,1]
+cooksD = (std.elastic.residuals[,1]/(ones-hatMat))^2 * hatMat/(MSE*12)
+
+p4 = ggplot(data.frame(cooksD), aes(seq_along(cooksD), cooksD, color = cooksD)) + 
+  geom_bar(stat="identity", position="identity") + 
+  geom_text(data = data.frame(labs = 1:500), aes(label=ifelse(cooksD>0.05,labs,'')),hjust=-0.25,vjust=1) +
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Obs. Number")+ylab("Cook's distance") +
+  ggtitle("Cook's distance")
+#
+#
+# Leverage vs standardized residuals
+#
+dat.tmp = cbind(dat.tmp, cbind(hatMat, cooksD))
+p5 = ggplot(dat.tmp, aes(hatMat, std.elastic.residuals, color = std.elastic.residuals))+geom_point(aes(size=cooksD), na.rm=TRUE) +
+  stat_smooth(method="loess", na.rm=TRUE) +
+  xlab("Leverage")+ylab("Standardized Residuals") +
+  ggtitle("Residual vs Leverage Plot") +
+  scale_size_continuous("Cook's Distance", range=c(1,5)) +
+  theme(legend.position="none", plot.title = element_text(size = 10, face = "bold"))
 
 
-# hist(data$crmpp)
-hist(log(data$crmpp))
+lay = rbind(c(1,2),
+            c(3,5),
+            c(4,4))
 
-### Multi-Linear regression
+grid.arrange(p1,p2,p3,p4,p5, layout_matrix = lay)
+
+
+# Try one without kings county NY-----------------------------------------------------------------------------------
+
+library(leaps)
+train.data = train.data[-115,]
+regsub.model = regsubsets(crmpp~., data = train.data, nvmax = 15)
+
+# Now that we have candidate models, how shall we choose? Based on prediction accuracy or 
+# interpretability/inference? Let's choose with accuracy since that was mentioned on the project page.
+
+regsub.model.sum = summary(regsub.model)$which
+
+n.folds <- 10
+folds.i <- sample(rep(1:n.folds, length.out = dim(train.data)[1]))
+rMSE.mat = matrix(data = NA, nrow = n.folds, ncol = dim(regsub.model.sum)[1])
+
+for(i in 1:n.folds){
+  train.dat.x = data.matrix(train.data[which(folds.i != i),-1])
+  train.dat.y = train.data[which(folds.i != i), 1]
+  test.dat.x = data.matrix(train.data[which(folds.i == i),-1])
+  test.dat.y = train.data[which(folds.i == i), 1]
+  
+  for(j in 1:dim(regsub.model.sum)[1]){
+    mm = lm(train.dat.y~train.dat.x[,regsub.model.sum[j,-1]])
+    mm.pred = sum((test.dat.y-
+                     cbind(rep(1,dim(test.dat.x)[1]), test.dat.x[,regsub.model.sum[j,-1]])%*%
+                     mm$coef)^2)/length(test.dat.y)
+    rMSE.mat[i,j] = mm.pred
+  }
+}
+
+avg.pMSE = apply(rMSE.mat, 2, mean)
+sd.pMSE = apply(rMSE.mat, 2, sd)
+avg.pMSE = data.frame(avg.pMSE)
+
+library(ggplot2)
+ggplot(data = avg.pMSE, aes(1:14, avg.pMSE, color = "Cross validation pMSE")) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  geom_vline(xintercept = which.min(avg.pMSE$avg.pMSE), color = "#CC6666", size = 1, linetype = "dotted") +
+  geom_vline(xintercept = 10, color = "#0000FF", size = 1, linetype = "dotted") +
+  theme(legend.position="none") +
+  xlab("Nr of variables") +
+  ylab("Prediction MSE") +
+  ggtitle("Prediction MSE, different model size, king county NY removed") +
+  geom_text(x = which.min(avg.pMSE$avg.pMSE), y= 500, 
+            label="CV min pMSE = 12", 
+            colour="#CC6666", hjust = 1.25, size = 3.5, angle = 45)+
+  geom_text(x = 10, y= 500, 
+            label="CV smallest model\nwithin sd", 
+            colour="#0000FF", hjust = 1.50, size = 3.5, angle = 45)
+
+# Let's see which model this winning model is ----------------------------------------------------------------------
+select.vars = as.logical(c(1, as.integer(regsub.model.sum[10,-1])))
+win.df = subset(train.data, select = select.vars)
+win.model = lm(crmpp~., data = win.df)
+win.sum = summary(win.model)
+
+
+
+# STARGAZER HERE
+library(stargazer)
+
+stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
+
+# DIAGNOSTIC PLOTS HERE
+
+# TEST AT TEST DATA
+
+#---------------------------------------------------------------------------------------------------------------
+#
+# Time to do the poisson regression
+
+hist(train.data$crmpp)
