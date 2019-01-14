@@ -279,6 +279,8 @@ summary(win.model)
 stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
 
 # DIAGNOSTICS OF MODEL--------------------------------------------------------------------------------------------
+library(ggplot2)
+library(gridExtra)
 
 fitted.vals = predict(win.model)
 elastic.residuals = train.data$crmpp - fitted.vals
@@ -294,8 +296,8 @@ p1 = ggplot(data = dat.tmp ,aes(fitted.vals, elastic.residuals, color = elastic.
   xlab("Fitted values") + 
   ylab("Residuals") +
   ggtitle("Residual vs Fitted Plot")+
-  geom_text(aes(label = ifelse(residuals > 150, row.names(dat.tmp), '')), hjust = -0.5, vjust = 0.5, size = 3)
-  
+  geom_text(aes(label = ifelse(residuals > 150, row.names(dat.tmp), '')), hjust = -0.5, vjust = 0.5, size = 2)
+
 
 #
 #
@@ -314,7 +316,9 @@ p2 = ggplot(dat.tmp, aes(qqnorm(std.elastic.residuals)[[1]], std.elastic.residua
   theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
   xlab("Theoretical Quantiles") + 
   ylab("Standardized Residuals") +
-  ggtitle("Normal Q-Q")
+  ggtitle("Normal Q-Q") +
+  geom_text(aes(label = ifelse(std.elastic.residuals > 9, row.names(dat.tmp), '')), 
+            hjust = 1.3, vjust = 0.5, size = 2)
 
 #
 # Scale-location plot
@@ -327,20 +331,22 @@ p3 = ggplot(dat.tmp, aes(fitted.vals, sqrt(abs(std.elastic.residuals)), color = 
   theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
   xlab("Fitted Value") +
   ylab(expression(sqrt("|Standardized residuals|"))) +
-  ggtitle("Scale-Location")
+  ggtitle("Scale-Location")+
+  geom_text(aes(label = ifelse(sqrt(abs(std.elastic.residuals)) > 3, row.names(dat.tmp), '')), 
+            hjust = 1.3, vjust = 0.5, size = 2)
 #
 #
 # Cooks distance
 #
-houseDat.x.1se = houseDat.x[,-c(1, 2, 3, 6, 8, 11, 15)]
-hatMat = hat(houseDat.x.1se)
-ones = rep(1,500)
-MSE = 1/(500-12) * std.elastic.residuals[,1] %*% std.elastic.residuals[,1]
+train.data.hat = win.df[,-1]
+hatMat = hat(train.data.hat)
+ones = rep(1,dim(train.data)[1])
+MSE = 1/(dim(train.data)[1]-7) * std.elastic.residuals[,1] %*% std.elastic.residuals[,1]
 cooksD = (std.elastic.residuals[,1]/(ones-hatMat))^2 * hatMat/(MSE*12)
 
 p4 = ggplot(data.frame(cooksD), aes(seq_along(cooksD), cooksD, color = cooksD)) + 
   geom_bar(stat="identity", position="identity") + 
-  geom_text(data = data.frame(labs = 1:500), aes(label=ifelse(cooksD>0.05,labs,'')),hjust=-0.25,vjust=1) +
+  geom_text(data = dat.tmp, aes(label=ifelse(cooksD>0.2,row.names(dat.tmp),'')),hjust=-0.25,vjust=1, size = 2) +
   theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
   xlab("Obs. Number")+ylab("Cook's distance") +
   ggtitle("Cook's distance")
@@ -354,7 +360,9 @@ p5 = ggplot(dat.tmp, aes(hatMat, std.elastic.residuals, color = std.elastic.resi
   xlab("Leverage")+ylab("Standardized Residuals") +
   ggtitle("Residual vs Leverage Plot") +
   scale_size_continuous("Cook's Distance", range=c(1,5)) +
-  theme(legend.position="none", plot.title = element_text(size = 10, face = "bold"))
+  theme(legend.position="none", plot.title = element_text(size = 10, face = "bold"))+
+  geom_text(aes(label = ifelse(std.elastic.residuals > 9, row.names(dat.tmp), '')), 
+            hjust = 1.3, vjust = 0.5, size = 2)
 
 
 lay = rbind(c(1,2),
@@ -419,16 +427,99 @@ ggplot(data = avg.pMSE, aes(1:14, avg.pMSE, color = "Cross validation pMSE")) +
 select.vars = as.logical(c(1, as.integer(regsub.model.sum[10,-1])))
 win.df = subset(train.data, select = select.vars)
 win.model = lm(crmpp~., data = win.df)
-win.sum = summary(win.model)
-
+summary(win.model)
 
 
 # STARGAZER HERE
-library(stargazer)
+#library(stargazer)
 
-stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
+#stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
 
-# DIAGNOSTIC PLOTS HERE
+# DIAGNOSTIC PLOTS HERE---------------------------------------------------------------------------------------------
+library(ggplot2)
+library(gridExtra)
+
+fitted.vals = predict(win.model)
+elastic.residuals = train.data$crmpp - fitted.vals
+dat.tmp = data.frame(cbind(fitted.vals, elastic.residuals))
+colnames(dat.tmp) = c("fitted values", "residuals")
+#
+# Residuals vs fitted value
+#
+p1 = ggplot(data = dat.tmp ,aes(fitted.vals, elastic.residuals, color = elastic.residuals)) + geom_point() +
+  stat_smooth(method="loess", color = "black") + 
+  geom_hline(yintercept=0, col="red", linetype="dashed") +
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Fitted values") + 
+  ylab("Residuals") +
+  ggtitle("Residual vs Fitted Plot")
+
+
+#
+#
+# Normal QQ-plot
+#
+#
+std.elastic.residuals = scale(elastic.residuals)
+qqPoints.y = quantile(std.elastic.residuals, c(0.25,0.75), names=FALSE, type=7)
+qqPoints.x = qnorm(c(0.25,0.75))
+slope = diff(qqPoints.y)/diff(qqPoints.x)
+intercept = qqPoints.y-slope*qqPoints.x
+
+p2 = ggplot(dat.tmp, aes(qqnorm(std.elastic.residuals)[[1]], std.elastic.residuals, color = std.elastic.residuals))+
+  geom_point() +
+  geom_abline(slope = slope, intercept = intercept, color = "red", lwd = 0.5) + 
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Theoretical Quantiles") + 
+  ylab("Standardized Residuals") +
+  ggtitle("Normal Q-Q")
+
+#
+# Scale-location plot
+#
+#
+
+p3 = ggplot(dat.tmp, aes(fitted.vals, sqrt(abs(std.elastic.residuals)), color = sqrt(abs(std.elastic.residuals))))+
+  geom_point() +
+  stat_smooth(method="loess", na.rm = TRUE, color = "red") +
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Fitted Value") +
+  ylab(expression(sqrt("|Standardized residuals|"))) +
+  ggtitle("Scale-Location")
+#
+#
+# Cooks distance
+#
+train.data.hat = win.df[,-1]
+hatMat = hat(train.data.hat)
+ones = rep(1,dim(train.data)[1])
+MSE = 1/(dim(train.data)[1]-10) * std.elastic.residuals[,1] %*% std.elastic.residuals[,1]
+cooksD = (std.elastic.residuals[,1]/(ones-hatMat))^2 * hatMat/(MSE*12)
+
+p4 = ggplot(data.frame(cooksD), aes(seq_along(cooksD), cooksD, color = cooksD)) + 
+  geom_bar(stat="identity", position="identity") +
+  geom_text(data = dat.tmp, aes(label=ifelse(cooksD>0.1,row.names(dat.tmp),'')),hjust=-0.25,vjust=1, size = 2)+
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Obs. Number")+ylab("Cook's distance") +
+  ggtitle("Cook's distance")
+#
+#
+# Leverage vs standardized residuals
+#
+dat.tmp = cbind(dat.tmp, cbind(hatMat, cooksD))
+p5 = ggplot(dat.tmp, aes(hatMat, std.elastic.residuals, color = std.elastic.residuals))+geom_point(aes(size=cooksD), na.rm=TRUE) +
+  stat_smooth(method="loess", na.rm=TRUE) +
+  xlab("Leverage")+ylab("Standardized Residuals") +
+  ggtitle("Residual vs Leverage Plot") +
+  scale_size_continuous("Cook's Distance", range=c(1,5)) +
+  theme(legend.position="none", plot.title = element_text(size = 10, face = "bold"))
+
+
+lay = rbind(c(1,2),
+            c(3,5),
+            c(4,4))
+
+grid.arrange(p1,p2,p3,p4,p5, layout_matrix = lay)
 
 # TEST AT TEST DATA
 
@@ -436,4 +527,147 @@ stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
 #
 # Time to do the poisson regression
 
-hist(train.data$crmpp)
+mean(data.transf$crmpp)
+var(data.transf$crmpp)
+# Does look like we have some serious overdispersion here. Poisson prob. not the answer.
+# Should instead go with quasipoisson or neg-binomial.
+
+# Further, since we're modelling count data we should use an offset in the poisson model.
+# This offset would be the popul variable which then has it's coeff. set to 1. With this in mind
+# we should not use the popul variable in other ways in the model as it would mean modeling the
+# crime count instead of the crime rate which we are interested in, so we fix this:
+
+set.seed(345)
+nr.train = dim(data)[1]*0.7
+nr.test = dim(data)[1] - nr.train
+train.index = sample(1:dim(data)[1], nr.train)
+
+train.data = data.transf[train.index,]
+test.data = data.transf[-train.index,]
+train.data = train.data[-115,]          # Removing Kings_NY as in regression case
+
+train.data$crmpp = (train.data$crmpp)*exp(train.data[,3])
+
+popul.offset = data$popul[train.index]
+popul.offset = popul.offset[-115]
+ 
+library(MASS)
+poisson.model = glm(crmpp~., family = "poisson", offset = log(popul.offset),data = train.data)
+summary(poisson.model)
+
+library(DHARMa)
+sim.res <- simulateResiduals(poisson.model, n = 250)
+n = length(sim.res$scaledResiduals)
+expected = (1:n)/(n+1)
+tmp.dat = data.frame(sort(sim.res$scaledResiduals), expected)
+colnames(tmp.dat) = c("Observed", "Expected")
+
+ggplot(data = tmp.dat, aes(Expected, Observed, color = Observed)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", lwd = 1, linetype = 2) +
+  xlab("Expected residuals")+
+  ylab("Observed scaled residuals")+
+  theme(legend.position = "none")
+
+stargazer(poisson.model, align = TRUE, no.space = TRUE, single.row = TRUE)
+
+library(AER)
+disp.test = dispersiontest(poisson.model, alternative = "two.sided")
+
+# Clear overdispersion as expected. We try with negative binomial.
+
+quasipoisson.model = glm(crmpp~., family = "quasipoisson", offset = log(popul.offset),data = train.data)
+summary(quasipoisson.model)
+
+negbinom.model = glm.nb(crmpp~. + offset(log(popul.offset)), data = train.data)
+
+pchisq(summary(quasipoisson.model)$dispersion * poisson.model$df.residual, poisson.model$df.residual, lower = F)
+# Our new model is significantly better than the poisson.
+
+# Now for model selection on this quasipoisson model.
+# We take the experience from the normal regression and use the same models found in the regsubset there.
+# We then perform cross validation on these category models but fitting with a quasipoisson
+# instead of the normal least squares:
+
+
+n.folds <- 10
+folds.i <- sample(rep(1:n.folds, length.out = dim(train.data)[1]))
+rMSE.mat = matrix(data = NA, nrow = n.folds, ncol = dim(regsub.model.sum)[1])
+
+for(i in 1:n.folds){
+  train.dat.x = data.matrix(train.data[which(folds.i != i),-1])
+  train.dat.y = train.data[which(folds.i != i), 1]
+  test.dat.x = data.matrix(train.data[which(folds.i == i),-1])
+  test.dat.y = train.data[which(folds.i == i), 1]
+  popul.train.offset = popul.offset[which(folds.i != i)]
+  popul.test.offset = popul.offset[which(folds.i == i)]
+  
+  for(j in 1:dim(regsub.model.sum)[1]){
+    mm = glm.nb(train.dat.y~train.dat.x[,regsub.model.sum[j,-1]]+offset(log(popul.train.offset)))
+    
+    mm.pred = sum((log(test.dat.y/popul.test.offset)-
+                     cbind(rep(1,dim(test.dat.x)[1]), test.dat.x[,regsub.model.sum[j,-1]])%*%
+                     mm$coef)^2)/length(test.dat.y)
+    rMSE.mat[i,j] = mm.pred
+  }
+}
+
+avg.pMSE = apply(rMSE.mat, 2, mean)
+avg.pMSE = data.frame(avg.pMSE)
+
+library(ggplot2)
+ggplot(data = avg.pMSE, aes(1:14, avg.pMSE, color = "Cross validation pMSE")) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  theme(legend.position="none") +
+  xlab("Nr of variables") +
+  ylab("Prediction MSE") +
+  labs(title = "Prediction MSE Negative Binomial, different model sizes.",
+       subtitle = "king county NY removed", size = 0.5) +
+  geom_vline(xintercept = which.min(avg.pMSE$avg.pMSE), color = "#CC6666", size = 1, linetype = "dotted") +
+  geom_text(x = which.min(avg.pMSE$avg.pMSE), y= 0.21, 
+            label="CV min pMSE = 7", 
+            colour="#CC6666", hjust = 1.25, size = 3.5, angle = 45)
+
+# Which is winning model?
+select.vars = as.logical(c(1, as.integer(regsub.model.sum[7,-1])))
+win.df = subset(train.data, select = select.vars)
+win.model = glm.nb(crmpp~. + offset(log(popul.offset)), data = win.df)
+summary(win.model)
+
+library(stargazer)
+stargazer(win.model, align = TRUE, no.space = TRUE, single.row = TRUE)
+
+# DIagnostics------------------------------------------------------------------------------------------------------
+
+fitted.vals = predict(win.model)
+elastic.residuals = log(train.data$crmpp) - fitted.vals
+dat.tmp = data.frame(cbind(fitted.vals, elastic.residuals))
+colnames(dat.tmp) = c("fitted values", "residuals")
+#
+# Residuals vs fitted value
+#
+p1 = ggplot(data = dat.tmp ,aes(fitted.vals, elastic.residuals, color = elastic.residuals)) + geom_point() +
+  stat_smooth(method="loess", color = "black") + 
+  geom_hline(yintercept=0, col="red", linetype="dashed") +
+  theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold")) +
+  xlab("Fitted values") + 
+  ylab("Residuals") +
+  ggtitle("Residual vs Fitted Plot")
+
+library(DHARMa)
+sim.res <- simulateResiduals(win.model, n = 250)
+n = length(sim.res$scaledResiduals)
+expected = (1:n)/(n+1)
+tmp.dat = data.frame(sort(sim.res$scaledResiduals), expected)
+colnames(tmp.dat) = c("Observed", "Expected")
+
+p2 = ggplot(data = tmp.dat, aes(Expected, Observed, color = Observed)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", lwd = 1, linetype = 2) +
+  xlab("Expected residuals")+
+  ylab("Observed scaled residuals")+
+  theme(legend.position = "none")
+
+library(gridExtra)
+grid.arrange(p1,p2)
